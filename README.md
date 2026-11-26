@@ -58,7 +58,7 @@ Members are read from the object itself, not through its reader methods, so a re
 
 ## Options
 
-### `trust_frozen:` (default `true`)
+### `trust_frozen:` (default `false`)
 
 Whether a container found already frozen is taken to be frozen all the way down.
 
@@ -66,14 +66,14 @@ Whether a container found already frozen is taken to be frozen all the way down.
 inner = +"text"
 list = [inner].freeze
 
-Fast::Freeze.deep_freeze(list)                        # returns at once
-inner.frozen?                                       # => false
+Fast::Freeze.deep_freeze(list, trust_frozen: true)   # returns at once
+inner.frozen?                                        # => false
 
-Fast::Freeze.deep_freeze(list, trust_frozen: false)   # walks it anyway
-inner.frozen?                                       # => true
+Fast::Freeze.deep_freeze(list)                       # walks it
+inner.frozen?                                        # => true
 ```
 
-With the default, a value that `deep_freeze` has frozen before costs one check to pass again. Pass `false` when the value may hold a container that someone froze by hand without freezing its contents.
+By default a frozen container is walked like any other, so one that someone froze by hand without freezing its contents is frozen through. Pass `true` when every frozen container in the value is known to be frozen all the way down, such as one `deep_freeze` froze before: passing it again then costs one check.
 
 The option applies to an Array, a Hash and a Set. It does not apply to a `Data` or a `Struct` passed to `deep_freeze`, which is always opened.
 
@@ -96,7 +96,7 @@ page[0].text.frozen?    # => true
 
 With this option a `Data` or a `Struct` found inside is opened whether or not it was already frozen. A `Data` is always frozen, so trusting it would make the option do nothing.
 
-The two options are separate. Under `trust_frozen: true` a frozen Array is still passed over, along with any struct inside it. To reach every struct in a value that may already be partly frozen, set both.
+The two options are separate. With `trust_frozen: true` a frozen Array is passed over, along with any struct inside it.
 
 ## What it does not reach
 
@@ -111,7 +111,7 @@ The two options are separate. Under `trust_frozen: true` a frozen Array is still
 - **Shared objects cost once.** A container reached by many paths is walked a bounded number of times, never once per path. The work grows with the size of the value, whatever it shares.
 - **Cycles end.** A value that holds itself is frozen and the call returns, with every combination of options.
 - **Any depth.** Nesting does not raise or overflow the stack, on a thread or on a fiber. Past 128 levels the walk continues from a list instead of going deeper on the stack.
-- **No allocation.** A call allocates no objects. The exceptions are rare: nesting past 128 levels, and a call with either option set that opens more than 96 already-frozen containers.
+- **No allocation.** A call allocates no objects. The exceptions are rare: nesting past 128 levels, and a call that opens more than 96 containers or structs that were already frozen.
 - **Errors pass through.** If a `freeze` raises, the error reaches the caller. Whatever was frozen before it stays frozen.
 
 ## Speed
@@ -120,19 +120,19 @@ Nanoseconds for one call, on Ruby 4.0.7 with YJIT on an Apple silicon laptop. `b
 
 | Value | fast-freeze | The same walk in Ruby | `Ractor.make_shareable` | ice_nine `deep_freeze!` |
 |---|---|---|---|---|
-| Small nested value (4 containers, 1 String) | 84 | 213 | 198 | 461 |
-| Document of about 90 objects | 719 | 2,366 | 2,798 | 5,323 |
-| Array of 1,000 such documents | 675,500 | 2,326,400 | 3,025,100 | 5,302,750 |
-| Document that is already frozen | 34 | 52 | 1,914 | 54 |
-| `Data` with 16 members | 170 | 822 | 422 | 98, and freezes nothing inside it |
+| Small nested value (4 containers, 1 String) | 81 | 254 | 195 | 457 |
+| Document of about 90 objects | 740 | 2,571 | 2,760 | 5,206 |
+| Array of 1,000 such documents | 643,550 | 2,515,650 | 3,014,750 | 5,162,250 |
+| Document that is already frozen | 533 | 2,253 | 1,898 | 59 |
+| `Data` with 16 members | 169 | 937 | 407 | 102, and freezes nothing inside it |
 
 These do not all do the same work, so read the table as how fast each one is at its own idea of a deep freeze:
 
-- **ice_nine** also walks the instance variables of every object, and it does not look inside a `Data`. `deep_freeze!` is its variant that skips what is already frozen. Plain `deep_freeze` walks everything again, frozen or not, and is slower on every row.
+- **ice_nine** also walks the instance variables of every object, and it does not look inside a `Data`. `deep_freeze!` is its variant that skips what is already frozen, which is why it passes the frozen document at once. Plain `deep_freeze` walks everything again, frozen or not, and is slower on every row.
 - **`Ractor.make_shareable`** also walks instance variables, and raises on a value that cannot be shared between Ractors.
 - **The walk in Ruby** follows the same rules as `deep_freeze` with its defaults. It is in `benchmark/compare.rb`.
 
-With `trust_frozen: false` the first three rows are unchanged, the frozen document takes 584 ns because it is walked again, and the `Data` takes 207 ns.
+With `trust_frozen: true` fast-freeze skips the frozen document too, in 56 ns. The other rows are unchanged by it.
 
 ## Development
 
