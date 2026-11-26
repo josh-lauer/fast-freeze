@@ -144,10 +144,6 @@ jobs:
 
       - name: Configure RubyGems credentials
         uses: rubygems/configure-rubygems-credentials@v2.2.0
-        with:
-          # The RubyGems account that owns the gem, by its immutable ID. RubyGems
-          # requires it for the first push through a pending trusted publisher.
-          owner: "79272"
 
       # Skips a gem RubyGems already has, so a release that failed partway
       # can be run again.
