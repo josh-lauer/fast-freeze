@@ -1,0 +1,10 @@
+/.bundle/
+/Gemfile.lock
+/pkg/
+/tmp/
+*.bundle
+*.so
+*.dSYM/
+*.o
+mkmf.log
+.DS_Store

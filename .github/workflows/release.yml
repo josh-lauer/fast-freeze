@@ -1,0 +1,160 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-gem:
+    name: Build native gem for ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with CROSS_PLATFORMS in the Rakefile and the verify job below.
+        platform:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - arm64-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Cross-compile native gem
+        run: bundle exec rake gem:${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-gem-${{ matrix.platform }}
+          path: pkg/*.gem
+          if-no-files-found: error
+
+  source-gem:
+    name: Build source gem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Build gem
+        run: bundle exec rake build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-gem
+          path: pkg/*.gem
+          if-no-files-found: error
+
+  # Installs each native gem on the platform it was built for and runs it,
+  # so a binary that does not load is caught before anything is published.
+  verify:
+    name: Verify native gem for ${{ matrix.platform }}
+    needs: native-gem
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86_64-linux-gnu
+            os: ubuntu-latest
+          - platform: aarch64-linux-gnu
+            os: ubuntu-24.04-arm
+          - platform: arm64-darwin
+            os: macos-latest
+          - platform: x86_64-linux-musl
+            os: ubuntu-latest
+            image: ruby:4.0-alpine
+          - platform: aarch64-linux-musl
+            os: ubuntu-24.04-arm
+            image: ruby:4.0-alpine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-gem-${{ matrix.platform }}
+          path: pkg
+
+      - name: Set up Ruby
+        if: ${{ !matrix.image }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+
+      - name: Install and run the gem
+        if: ${{ !matrix.image }}
+        run: |
+          gem install --local pkg/*.gem
+          ruby script/verify_gem.rb
+
+      - name: Install and run the gem in ${{ matrix.image }}
+        if: ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work "${{ matrix.image }}" \
+            sh -c "gem install --local pkg/*.gem && ruby script/verify_gem.rb"
+
+  release:
+    name: Publish to RubyGems
+    needs:
+      - native-gem
+      - source-gem
+      - verify
+    runs-on: ubuntu-latest
+    # Skip publishing on workflow_dispatch; tag pushes are the canonical
+    # release trigger. Use `workflow_dispatch` to dry-run the build matrix.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write # OIDC token for RubyGems trusted publishing
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+
+      - name: Check that the tag matches the gem's version
+        run: |
+          version="$(ruby -Ilib -e 'require "fast/freeze/version"; print Fast::Freeze::VERSION')"
+          test "v$version" = "$GITHUB_REF_NAME"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: pkg
+          merge-multiple: true
+
+      - name: Configure RubyGems credentials
+        uses: rubygems/configure-rubygems-credentials@v2.1.0
+
+      - name: Push gems to RubyGems
+        run: |
+          set -e
+          for gem in pkg/*.gem; do
+            echo "Pushing $gem"
+            gem push "$gem"
+          done
+
+      - name: Attach gems to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pkg/*.gem
+          generate_release_notes: true

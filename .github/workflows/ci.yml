@@ -1,0 +1,45 @@
+---
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Ruby ${{ matrix.ruby-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        ruby-version:
+          - "4.0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Compile extension
+        run: bundle exec rake compile
+
+      - name: Run specs
+        run: bundle exec rake spec
+
+      - name: Run specs (hard mode, a collection at every allocation)
+        run: bundle exec rake spec
+        env:
+          GC_STRESS: "true"
