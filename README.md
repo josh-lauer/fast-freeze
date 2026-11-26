@@ -31,15 +31,17 @@ Precompiled gems are published for Linux on x86-64 and arm64, with glibc or musl
 |---|---|
 | `nil`, `true`, `false`, a number, a Symbol | Nothing. It is frozen by nature. |
 | A String | Frozen. |
-| An Array | Frozen, and each element walked. |
-| A Hash | Frozen, and each key and each value walked. |
-| A Set | Frozen, and each element walked. |
+| An Array | Frozen, and so is each element. |
+| A Hash | Frozen, and so are each key and each value. |
+| A Set | Frozen, and so is each element. |
 | A class or a module | Left alone. |
 | Any other object | `freeze` is called on it. It is not looked inside. |
 
+The same rules apply to each element, key and value, so containers inside containers are frozen however deeply they nest.
+
 A `Data` or a `Struct` is treated by where it is:
 
-- **Passed to `deep_freeze`**, it is frozen and each of its members is walked. A `Data` is frozen from birth while the things it holds are not, and this is how you freeze those.
+- **Passed to `deep_freeze`**, it is frozen, and so is what each of its members holds. A `Data` is frozen from birth while the things it holds are not, and this is how you freeze those.
 - **Found inside the value**, it is frozen and not looked inside, like any other object. `recurse_into_structs: true` changes that.
 
 ```ruby
@@ -69,17 +71,17 @@ list = [inner].freeze
 Fast::Freeze.deep_freeze(list, trust_frozen: true)   # returns at once
 inner.frozen?                                        # => false
 
-Fast::Freeze.deep_freeze(list)                       # walks it
+Fast::Freeze.deep_freeze(list)                       # freezes what is inside
 inner.frozen?                                        # => true
 ```
 
-By default a frozen container is walked like any other, so one that someone froze by hand without freezing its contents is frozen through. Pass `true` when every frozen container in the value is known to be frozen all the way down, such as one `deep_freeze` froze before: passing it again then costs one check.
+By default a frozen container is treated like any other and its contents are frozen too, so one that someone froze by hand without freezing its contents is frozen through. Pass `true` when every frozen container in the value is known to be frozen all the way down, such as one `deep_freeze` froze before: passing it again then costs one check.
 
-The option applies to an Array, a Hash and a Set. It does not apply to a `Data` or a `Struct` passed to `deep_freeze`, which is always opened.
+The option applies to an Array, a Hash and a Set. It does not apply to a `Data` or a `Struct` passed to `deep_freeze`, whose members are always frozen.
 
 ### `recurse_into_structs:` (default `false`)
 
-Whether the members of every `Data` and `Struct` found inside the value are walked too.
+Whether what the members of every `Data` and `Struct` found inside the value hold is frozen too.
 
 ```ruby
 Line = Struct.new(:text)
@@ -94,31 +96,31 @@ Fast::Freeze.deep_freeze(page, recurse_into_structs: true)
 page[0].text.frozen?    # => true
 ```
 
-With this option a `Data` or a `Struct` found inside is opened whether or not it was already frozen. A `Data` is always frozen, so trusting it would make the option do nothing.
+With this option a `Data` or a `Struct` found inside is looked inside whether or not it was already frozen. A `Data` is always frozen, so skipping the frozen ones would make the option do nothing.
 
 The two options are separate. With `trust_frozen: true` a frozen Array is passed over, along with any struct inside it.
 
 ## What it does not reach
 
-- **Inside any other object.** An object that is not one of the containers above has `freeze` called and nothing more. Its instance variables are not walked. If a class of yours holds things that should freeze with it, define `freeze` on the class to freeze them; `deep_freeze` calls it.
+- **Inside any other object.** An object that is not one of the containers above has `freeze` called and nothing more. What its instance variables hold is left as it is. If a class of yours holds things that should freeze with it, define `freeze` on the class to freeze them; `deep_freeze` calls it.
 - **The default value of a Hash.** After `Fast::Freeze.deep_freeze(Hash.new([]))` the Hash is frozen and the Array it hands out for a missing key is not.
 - **The ends of a Range.** A Range is frozen and not looked inside.
-- **What a Proc or a Method can reach.** A Proc is frozen. The variables it closes over are not walked.
+- **What a Proc or a Method can reach.** A Proc is frozen. What the variables it closes over hold is left as it is.
 
 ## What you can rely on
 
 - **Subclasses keep their own `freeze`.** A plain String, Array or Hash is frozen directly in C. A subclass of one, or an object with a singleton class, has its `freeze` method called.
-- **Shared objects cost once.** A container reached by many paths is walked a bounded number of times, never once per path. The work grows with the size of the value, whatever it shares.
+- **Shared objects cost once.** A container reached by many paths is looked inside at most twice, never once per path. The work grows with the size of the value, whatever it shares.
 - **Cycles end.** A value that holds itself is frozen and the call returns, with every combination of options.
-- **Any depth.** Nesting does not raise or overflow the stack, on a thread or on a fiber. Past 128 levels the walk continues from a list instead of going deeper on the stack.
-- **No allocation.** A call allocates no objects. The exceptions are rare: nesting past 128 levels, and a call that opens more than 96 containers or structs that were already frozen.
+- **Any depth.** Nesting does not raise or overflow the stack, on a thread or on a fiber. Past 128 levels it keeps a list of the containers still to do and works through that, instead of going deeper on the stack.
+- **No allocation.** A call allocates no objects. The exceptions are rare: nesting past 128 levels, and a call that looks inside more than 96 containers or structs that were already frozen.
 - **Errors pass through.** If a `freeze` raises, the error reaches the caller. Whatever was frozen before it stays frozen.
 
 ## Speed
 
 Nanoseconds for one call, on Ruby 4.0.7 with YJIT on an Apple silicon laptop. `bundle exec rake benchmark` runs it on yours.
 
-| Value | fast-freeze | The same walk in Ruby | `Ractor.make_shareable` | ice_nine `deep_freeze!` |
+| Value | fast-freeze | The same rules in plain Ruby | `Ractor.make_shareable` | ice_nine `deep_freeze!` |
 |---|---|---|---|---|
 | Small nested value (4 containers, 1 String) | 81 | 254 | 195 | 457 |
 | Document of about 90 objects | 740 | 2,571 | 2,760 | 5,206 |
@@ -128,9 +130,9 @@ Nanoseconds for one call, on Ruby 4.0.7 with YJIT on an Apple silicon laptop. `b
 
 These do not all do the same work, so read the table as how fast each one is at its own idea of a deep freeze:
 
-- **ice_nine** also walks the instance variables of every object, and it does not look inside a `Data`. `deep_freeze!` is its variant that skips what is already frozen, which is why it passes the frozen document at once. Plain `deep_freeze` walks everything again, frozen or not, and is slower on every row.
-- **`Ractor.make_shareable`** also walks instance variables, and raises on a value that cannot be shared between Ractors.
-- **The walk in Ruby** follows the same rules as `deep_freeze` with its defaults. It is in `benchmark/compare.rb`.
+- **ice_nine** also freezes what the instance variables of every object hold, and it does not look inside a `Data`. `deep_freeze!` is its variant that skips what is already frozen, which is why it passes the frozen document at once. Plain `deep_freeze` goes through everything again, frozen or not, and is slower on every row.
+- **`Ractor.make_shareable`** also freezes what instance variables hold, and raises on a value that cannot be shared between Ractors.
+- **The plain Ruby version** follows the same rules as `deep_freeze` with its defaults. It is in `benchmark/compare.rb`, where it is labelled "walk in Ruby".
 
 With `trust_frozen: true` fast-freeze skips the frozen document too, in 56 ns. The other rows are unchanged by it.
 
