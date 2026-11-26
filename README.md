@@ -151,6 +151,7 @@ Pushing a tag named for the version, such as `v0.1.0`, runs the release workflow
 
 - Set `Fast::Freeze::VERSION` and add the version to `CHANGELOG.md` first. The workflow refuses a tag that does not match the version.
 - Running the workflow by hand from the Actions tab builds and verifies the gems and publishes nothing.
+- If publishing fails partway, run the failed job again. It skips the gems RubyGems already has and pushes the rest.
 - Publishing uses RubyGems trusted publishing, so the repository holds no API key. RubyGems must list this repository and `release.yml` as a trusted publisher for the gem.
 - `bundle exec rake gem:x86_64-linux-gnu` builds one precompiled gem locally. It needs Docker.
 

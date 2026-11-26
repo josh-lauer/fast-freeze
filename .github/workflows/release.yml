@@ -143,18 +143,20 @@ jobs:
           merge-multiple: true
 
       - name: Configure RubyGems credentials
-        uses: rubygems/configure-rubygems-credentials@v2.1.0
+        uses: rubygems/configure-rubygems-credentials@v2.2.0
+        with:
+          # The RubyGems account that owns the gem, by its immutable ID. RubyGems
+          # requires it for the first push through a pending trusted publisher.
+          owner: "79272"
 
+      # Skips a gem RubyGems already has, so a release that failed partway
+      # can be run again.
       - name: Push gems to RubyGems
-        run: |
-          set -e
-          for gem in pkg/*.gem; do
-            echo "Pushing $gem"
-            gem push "$gem"
-          done
+        run: ruby script/push_gems.rb
 
       - name: Attach gems to GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: pkg/*.gem
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '.pre') }}
