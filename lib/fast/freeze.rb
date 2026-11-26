@@ -24,16 +24,16 @@ module Fast
     # +recurse_into_structs+ says otherwise.
     #
     # [trust_frozen]
-    #   When true, an Array, a Hash or a Set found already frozen is taken to be
-    #   frozen all the way down and is not walked. When false it is walked like
-    #   any other.
+    #   When false, an Array, a Hash or a Set found already frozen is walked
+    #   like any other. When true it is taken to be frozen all the way down and
+    #   is not walked.
     # [recurse_into_structs]
     #   When true, the members of every Data and Struct found inside +value+ are
     #   walked too, whether or not it was found frozen.
     #
     # If a +freeze+ raises, the error is passed on and what was frozen before it
     # stays frozen.
-    def self.deep_freeze(value, trust_frozen: true, recurse_into_structs: false)
+    def self.deep_freeze(value, trust_frozen: false, recurse_into_structs: false)
       __deep_freeze__(value, trust_frozen, recurse_into_structs)
     end
 

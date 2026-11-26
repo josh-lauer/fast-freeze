@@ -16,7 +16,9 @@ rescue LoadError
   warn "ice_nine is not installed, so it is left out (bundle install adds it)"
 end
 
-# The same rules as Fast::Freeze.deep_freeze with its defaults, in Ruby.
+# The same rules as Fast::Freeze.deep_freeze with its defaults, in Ruby. It
+# keeps no record of what it has opened, so it would not end on a value that
+# holds itself.
 module RubyWalk
   MEMBERS_OF = ::Data.instance_method(:to_h)
 
@@ -33,8 +35,6 @@ module RubyWalk
   end
 
   def self.walk(value)
-    return if value.frozen?
-
     case value
     when ::String then value.freeze
     when ::Array, ::Set
@@ -80,7 +80,7 @@ def frozen_document = Fast::Freeze.deep_freeze(document)
 
 CONTENDERS = {
   "fast-freeze" => ->(value) { Fast::Freeze.deep_freeze(value) },
-  "fast-freeze, trust_frozen: false" => ->(value) { Fast::Freeze.deep_freeze(value, trust_frozen: false) },
+  "fast-freeze, trust_frozen: true" => ->(value) { Fast::Freeze.deep_freeze(value, trust_frozen: true) },
   "walk in Ruby" => ->(value) { RubyWalk.deep_freeze(value) },
   "Ractor.make_shareable" => ->(value) { Ractor.make_shareable(value) }
 }

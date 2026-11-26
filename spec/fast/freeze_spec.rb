@@ -194,8 +194,8 @@ RSpec.describe Fast::Freeze do
       let(:calls) do
         [
           ->(value) { described_class.deep_freeze(value) },
-          ->(value) { described_class.deep_freeze(value, trust_frozen: false) },
-          ->(value) { described_class.deep_freeze(value, trust_frozen: false, recurse_into_structs: true) }
+          ->(value) { described_class.deep_freeze(value, trust_frozen: true) },
+          ->(value) { described_class.deep_freeze(value, recurse_into_structs: true) }
         ]
       end
 
@@ -321,41 +321,41 @@ RSpec.describe Fast::Freeze do
   end
 
   describe "trust_frozen" do
-    it "by default takes a frozen container as frozen throughout" do
-      inner = +"reached only without trust"
-      value = { "list" => [inner].freeze, "set" => Set[[inner]].freeze, "hash" => { "k" => inner }.freeze }
-
-      described_class.deep_freeze(value)
-
-      expect(inner).not_to be_frozen
-    end
-
-    it "by default returns a frozen value at once" do
-      inner = +"unfrozen"
-      value = [inner].freeze
-
-      described_class.deep_freeze(value)
-
-      expect(inner).not_to be_frozen
-    end
-
-    it "when false walks a frozen Array, Hash and Set" do
+    it "by default walks a frozen Array, Hash and Set" do
       in_array = +"a"
       in_hash = +"b"
       in_set = [+"c"]
       value = [[in_array].freeze, { "k" => in_hash }.freeze, Set[in_set].freeze].freeze
 
-      described_class.deep_freeze(value, trust_frozen: false)
+      described_class.deep_freeze(value)
 
       expect([in_array, in_hash, in_set, in_set[0]]).to all(be_frozen)
     end
 
-    it "when false still does not look inside a Data found in the value" do
+    it "by default still does not look inside a Data found in the value" do
       data = Data.define(:text).new(text: +"a")
 
-      described_class.deep_freeze([data].freeze, trust_frozen: false)
+      described_class.deep_freeze([data].freeze)
 
       expect(data.text).not_to be_frozen
+    end
+
+    it "when true takes a frozen container as frozen throughout" do
+      inner = +"reached only without trust"
+      value = { "list" => [inner].freeze, "set" => Set[[inner]].freeze, "hash" => { "k" => inner }.freeze }
+
+      described_class.deep_freeze(value, trust_frozen: true)
+
+      expect(inner).not_to be_frozen
+    end
+
+    it "when true returns a frozen value at once" do
+      inner = +"unfrozen"
+      value = [inner].freeze
+
+      described_class.deep_freeze(value, trust_frozen: true)
+
+      expect(inner).not_to be_frozen
     end
   end
 
